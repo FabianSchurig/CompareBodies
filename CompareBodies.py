@@ -1,13 +1,9 @@
 #Author-Fabian
 #Description-
 
-import adsk.core, adsk.fusion, traceback
+import adsk.core, adsk.fusion, adsk.cam, traceback
 import math
 
-global ui
-global app
-app = None
-ui  = None
 commandId = 'CompareBodies'
 commandName = 'Compare'
 commandDescription = 'Compare command input examples.'
@@ -25,22 +21,35 @@ def compareBRepBodiesByVolume(firstBRepBody, secondBRepBody):
 '''
 compare vertices [Vertex1,Vertex2,Vertex3,Vertex4] [Vertex1,Vertex2,Vertex3,Vertex4]
 '''
-def compareVerticesList(firstVertices, secondVertices):    
+def compareVerticesList(firstVertices, secondVertices, comDifference):    
     for first in firstVertices:
         res = False
         for second in secondVertices:
-            if first.geometry.isEqualTo(second.geometry):                                
+            if compareVertices(first, second, comDifference):#first.geometry.isEqualTo(second.geometry):#                                
                 res = True
                 break
         if not res:
             return False
     return True
 
-def compareVertices(firstVertex,secondVertex):
+def compareVertices(firstVertex,secondVertex, comDifference):
     #ui.messageBox(str(firstVertex.geometry.x) + " " + str(firstVertex.geometry.y) + " " + str(firstVertex.geometry.z) + "\n" + str(secondVertex.geometry.x) + " " + str(secondVertex.geometry.y) + " " + str(secondVertex.geometry.z))    
-    if math.isclose(firstVertex.geometry.x,secondVertex.geometry.x) and math.isclose(firstVertex.geometry.y,secondVertex.geometry.y) and math.isclose(firstVertex.geometry.z,secondVertex.geometry.z):
+    if math.isclose(firstVertex.geometry.x,secondVertex.geometry.x + comDifference[0], abs_tol=1e-09) and math.isclose(firstVertex.geometry.y,secondVertex.geometry.y + comDifference[1], abs_tol=1e-09) and math.isclose(firstVertex.geometry.z,secondVertex.geometry.z + comDifference[2], abs_tol=1e-09):
         return True
     return False
+
+''' Center of Mass/ CoM difference of two BRepBodies'''
+def getCoMDifference(firstBRep,secondBRep):
+    diff = []
+    (returnValue, xAxis, yAxis, zAxis) = firstBRep.physicalProperties.getPrincipalAxes()
+    ui.messageBox("x: "+str(xAxis.asArray()) +"\ny:"+str(yAxis.asArray()) + "\nz: "+str(zAxis.asArray()) )
+    (returnValue, xAxis, yAxis, zAxis) = secondBRep.physicalProperties.getPrincipalAxes()
+    ui.messageBox("x: "+str(xAxis.asArray()) +"\ny:"+str(yAxis.asArray()) + "\nz: "+str(zAxis.asArray()) )
+    ui.messageBox("first: "+str(firstBRep.physicalProperties.getRotationToPrincipal()) + "\nsecond: "+str(secondBRep.physicalProperties.getRotationToPrincipal()))
+    diff.append(firstBRep.physicalProperties.centerOfMass.x - secondBRep.physicalProperties.centerOfMass.x)
+    diff.append(firstBRep.physicalProperties.centerOfMass.y - secondBRep.physicalProperties.centerOfMass.y)
+    diff.append(firstBRep.physicalProperties.centerOfMass.z - secondBRep.physicalProperties.centerOfMass.z)
+    return diff
 
 def printVertices(face):
     res = ""
@@ -66,11 +75,13 @@ def compareBRepBodiesByFaces(firstBRepBody, secondBRepBody):
         firstFaces.append(firstVertices)
     isEqual = True
     i = 0
+    diff = getCoMDifference(firstBRepBody,secondBRepBody)
+    ui.messageBox("difference center of mass:\nx: "+str(diff[0])+"\ny: "+str(diff[1])+"\nz: "+str(diff[2]))
     for first in firstFaces:
         
         res = False
         for second in secondFaces:
-            if compareVerticesList(first, second):
+            if compareVerticesList(first, second, diff):
                 res = True
                 break
             
@@ -97,6 +108,8 @@ class CompareExecuteHandler(adsk.core.CommandEventHandler):
            if selectionInput.selectionCount == 2:
                firstBase = selectionInput.selection(0).entity
                secondBase = selectionInput.selection(1).entity
+               print(str(compareBRepBodiesByArea(firstBase,secondBase)))
+
                ui.messageBox("Area: "+ str(compareBRepBodiesByArea(firstBase,secondBase)) + "\nVolume:" + str(compareBRepBodiesByVolume(firstBase,secondBase)) + "\nFaces: " + str(compareBRepBodiesByFaces(firstBase,secondBase)))
         except:
             if ui:
@@ -109,14 +122,7 @@ class CompareCommandInputChangedHandler(adsk.core.InputChangedEventHandler):
         try:
            command = args.firingEvent.sender   
            cmdInput = args.input                   
-           inputs = command.commandInputs
-
-           selectionInput = inputs.itemById(commandId + '_selection')
-           
-           if selectionInput.selectionCount == 2:
-               firstBase = selectionInput.selection(0).entity
-               secondBase = selectionInput.selection(1).entity
-               #ui.messageBox("Area: "+ str(compareBRepBodiesByArea(firstBase,secondBase)) + "\nVolume:" + str(compareBRepBodiesByVolume(firstBase,secondBase)) + "\nFaces: " + str(compareBRepBodiesByFaces(firstBase,secondBase)))
+           inputs = command.commandInputs           
         except:
             if ui:
                 ui.messageBox('Failed:\n{}'.format(traceback.format_exc()))
@@ -142,7 +148,11 @@ class CompareCommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
             
             onExecute = CompareExecuteHandler()
             cmd.execute.add(onExecute)
-            handlers.append(onExecute)            
+            handlers.append(onExecute)
+            
+            onExecutePreview = CompareExecuteHandler()
+            cmd.executePreview.add(onExecutePreview)
+            handlers.append(onExecutePreview)
             
             onDestroy = CompareCommandDestroyHandler()
             cmd.destroy.add(onDestroy)
@@ -162,6 +172,9 @@ class CompareCommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
             selectionInput.setSelectionLimits(0)
             selectionInput.addSelectionFilter("SolidBodies")
             
+            #Create selection for design in current directory
+            
+            
         except:
             if ui:
                 ui.messageBox('Failed:\n{}'.format(traceback.format_exc()))
@@ -169,7 +182,9 @@ class CompareCommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
 def run(context):
     ui = None
     try:
+        global app        
         app = adsk.core.Application.get()
+        global ui        
         ui = app.userInterface
 
         global commandId
@@ -188,7 +203,7 @@ def run(context):
 
         #ree = ""
         #for i in range(0,lib.appearances.count):
-            #ree += str(i) + " " + str(lib.appearances.item(i).name) + "\n"
+        #    ree += str(i) + " " + str(lib.appearances.item(i).name) + "\n"
             
         #ui.messageBox(ree)
         libAppear = lib.appearances.item(92)
