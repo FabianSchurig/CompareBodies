@@ -41,11 +41,11 @@ def compareVertices(firstVertex,secondVertex, comDifference):
 ''' Center of Mass/ CoM difference of two BRepBodies'''
 def getCoMDifference(firstBRep,secondBRep):
     diff = []
-    (returnValue, xAxis, yAxis, zAxis) = firstBRep.physicalProperties.getPrincipalAxes()
-    ui.messageBox("x: "+str(xAxis.asArray()) +"\ny:"+str(yAxis.asArray()) + "\nz: "+str(zAxis.asArray()) )
-    (returnValue, xAxis, yAxis, zAxis) = secondBRep.physicalProperties.getPrincipalAxes()
-    ui.messageBox("x: "+str(xAxis.asArray()) +"\ny:"+str(yAxis.asArray()) + "\nz: "+str(zAxis.asArray()) )
-    ui.messageBox("first: "+str(firstBRep.physicalProperties.getRotationToPrincipal()) + "\nsecond: "+str(secondBRep.physicalProperties.getRotationToPrincipal()))
+    #(returnValue, xAxis, yAxis, zAxis) = firstBRep.physicalProperties.getPrincipalAxes()
+    #ui.messageBox("x: "+str(xAxis.asArray()) +"\ny:"+str(yAxis.asArray()) + "\nz: "+str(zAxis.asArray()) )
+    #(returnValue, xAxis, yAxis, zAxis) = secondBRep.physicalProperties.getPrincipalAxes()
+    #ui.messageBox("x: "+str(xAxis.asArray()) +"\ny:"+str(yAxis.asArray()) + "\nz: "+str(zAxis.asArray()) )
+    #ui.messageBox("first: "+str(firstBRep.physicalProperties.getRotationToPrincipal()) + "\nsecond: "+str(secondBRep.physicalProperties.getRotationToPrincipal()))
     diff.append(firstBRep.physicalProperties.centerOfMass.x - secondBRep.physicalProperties.centerOfMass.x)
     diff.append(firstBRep.physicalProperties.centerOfMass.y - secondBRep.physicalProperties.centerOfMass.y)
     diff.append(firstBRep.physicalProperties.centerOfMass.z - secondBRep.physicalProperties.centerOfMass.z)
@@ -60,6 +60,7 @@ def printVertices(face):
     ui.messageBox(res)
 
 def compareBRepBodiesByFaces(firstBRepBody, secondBRepBody):
+    volumeIsEqual = compareBRepBodiesByVolume(firstBRepBody,secondBRepBody)
     if firstBRepBody.faces.count != secondBRepBody.faces.count:
         return False
     firstFaces = []
@@ -75,7 +76,12 @@ def compareBRepBodiesByFaces(firstBRepBody, secondBRepBody):
         firstFaces.append(firstVertices)
     isEqual = True
     i = 0
-    diff = getCoMDifference(firstBRepBody,secondBRepBody)
+    
+    #if volume is equal the translation can be calculated by the center of mass
+    if volumeIsEqual:
+        diff = getCoMDifference(firstBRepBody,secondBRepBody)
+    else:
+        diff = [0,0,0]
     ui.messageBox("difference center of mass:\nx: "+str(diff[0])+"\ny: "+str(diff[1])+"\nz: "+str(diff[2]))
     for first in firstFaces:
         
@@ -122,7 +128,10 @@ class CompareCommandInputChangedHandler(adsk.core.InputChangedEventHandler):
         try:
            command = args.firingEvent.sender   
            cmdInput = args.input                   
-           inputs = command.commandInputs           
+           inputs = command.commandInputs 
+           
+           addButtonInput = inputs.itemById(commandId + '_add')
+           print(str(addButtonInput.value))
         except:
             if ui:
                 ui.messageBox('Failed:\n{}'.format(traceback.format_exc()))
@@ -173,6 +182,11 @@ class CompareCommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
             selectionInput.addSelectionFilter("SolidBodies")
             
             #Create selection for design in current directory
+            
+            addButtonInput = inputs.addBoolValueInput(commandId + '_add', ' ', False, '', True)
+            addButtonInput.text = "Körper auswählen"
+            addButtonInput.isFullWidth = True
+            #tableInput.addToolbarCommandInput(addButtonInput)
             
             
         except:
