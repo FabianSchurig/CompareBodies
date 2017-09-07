@@ -99,6 +99,7 @@ iterate faces from BRep 1 and compares its vertices with the ones from BRep 2
 '''
 def compareBRepBodiesByFaces(firstBRepBody, secondBRepBody):
     volumeIsEqual = compareBRepBodiesByVolume(firstBRepBody,secondBRepBody)
+    #how to get differences of bodies with different faces count?    
     if firstBRepBody.faces.count != secondBRepBody.faces.count:
         return False
     firstFaces = []
@@ -120,7 +121,7 @@ def compareBRepBodiesByFaces(firstBRepBody, secondBRepBody):
         diff = getCoMDifference(firstBRepBody,secondBRepBody)
     else:
         diff = [0,0,0]
-    ui.messageBox("difference center of mass:\nx: "+str(diff[0])+"\ny: "+str(diff[1])+"\nz: "+str(diff[2]))
+    #ui.messageBox("difference center of mass:\nx: "+str(diff[0])+"\ny: "+str(diff[1])+"\nz: "+str(diff[2]))
     for first in firstFaces:
         
         res = False
@@ -135,8 +136,8 @@ def compareBRepBodiesByFaces(firstBRepBody, secondBRepBody):
             #ui.messageBox(str(i))
         i += 1
         
-    if not isEqual:
-        secondBRepBody.isLightBulbOn = False
+    #if not isEqual:
+    #    secondBRepBody.isLightBulbOn = False
     return isEqual
 
 
@@ -147,6 +148,8 @@ class CompareExecuteHandler(adsk.core.CommandEventHandler):
         try:
            command = args.firingEvent.sender                  
            inputs = command.commandInputs
+           
+           global documents
            
            product = app.activeProduct
            design = adsk.fusion.Design.cast(product)
@@ -159,24 +162,7 @@ class CompareExecuteHandler(adsk.core.CommandEventHandler):
            textBoxInput = inputs.itemById(commandId + '_textBox')
            
            isMultiInput = inputs.itemById(commandId + '_multi')
-           
-           countFiles = 0
-           #import selected files
-           for filename in filesToImport:
-               trans = adsk.core.Matrix3D.create()
-               newOccurence = rootComp.occurrences.addNewComponent(trans)
-               newComponent = newOccurence.component
-               # Get import manager 
-               importManager = app.importManager
-               countFiles = countFiles + 1
-               # Get archive import options
-               archiveOptions = importManager.createFusionArchiveImportOptions(filename)
-               
-               # Import archive file to root component
-               #importManager.importToNewDocument(archiveOptions)
-               importManager.importToTarget(archiveOptions, newComponent)
-           ui.messageBox("Imported: " + str(countFiles))
-
+           res = ""
            if selectionRootInput.selectionCount == 1 and selectionSecondInput.selectionCount == 1 and not isMultiInput.value:
                firstBase = selectionRootInput.selection(0).entity
                secondBase = selectionSecondInput.selection(0).entity
@@ -185,8 +171,22 @@ class CompareExecuteHandler(adsk.core.CommandEventHandler):
                checkFaces = compareBRepBodiesByFaces(firstBase,secondBase)
                res = "Area: "+str(checkArea)+ "\nVolume: " + str(checkVolume)+ "\nFaces: " + str(checkFaces)
                textBoxInput.formattedText = res
-           if selectionRootInput and isMultiInput.value:
-               textBoxInput.formattedText = "multibleBodies"
+           if selectionRootInput and isMultiInput.value and len(documents) > 1:
+               res = "number documents: " + str(len(documents)) + "\n"
+               firstBase = selectionRootInput.selection(0).entity
+               for document in documents[:]:
+                   docDesign = adsk.fusion.Design.cast(document.products.itemByProductType('DesignProductType'))
+                   docBodies = docDesign.rootComponent.bRepBodies
+                   res += 'imported document {} with {} bodies\n'.format(document.name, docBodies.count)
+                   if docDesign.rootComponent.bRepBodies.count == 1:
+                       secondBase = docBodies.item(0)
+                       checkArea = compareBRepBodiesByArea(firstBase,secondBase)
+                       checkVolume = compareBRepBodiesByVolume(firstBase,secondBase)
+                       checkFaces = compareBRepBodiesByFaces(secondBase,firstBase)
+                       res += "Area: "+str(checkArea)+ "\nVolume: " + str(checkVolume)+ "\nFaces: " + str(checkFaces) + "\n"
+                       diff = getCoMDifference(secondBase,firstBase)
+                       res += "difference center of mass:\nx: "+str(diff[0])+"\ny: "+str(diff[1])+"\nz: "+str(diff[2]) + "\n"
+                   textBoxInput.formattedText = res
         except:
             if ui:
                 ui.messageBox('Failed:\n{}'.format(traceback.format_exc()))
@@ -198,11 +198,15 @@ class CompareCommandInputChangedHandler(adsk.core.InputChangedEventHandler):
         try:
            global prevButtonState
            global filesToImport
+           global documents
+           global rootDocument
+           
            command = args.firingEvent.sender   
            cmdInput = args.input                   
            inputs = command.commandInputs
            
            product = app.activeProduct
+           
            design = adsk.fusion.Design.cast(product)
             
            rootComp = design.rootComponent
@@ -219,11 +223,30 @@ class CompareCommandInputChangedHandler(adsk.core.InputChangedEventHandler):
            addButtonInput = inputs.itemById(commandId + '_add')
            if prevButtonState != addButtonInput.value:
                filesToImport = addButtonOnClick(isMultiInput.value)
-               ui.messageBox("Imported Files: "+str(filesToImport))
+               ui.messageBox("Import Files: "+str(filesToImport))
+               countFiles = 0
+               #import selected files
+               for filename in filesToImport:
+                   # Get import manager 
+                   importManager = app.importManager
+                   countFiles = countFiles + 1
+                   # Get archive import options
+                   archiveOptions = importManager.createFusionArchiveImportOptions(filename)
+                   
+                   # Import archive file to root component
+                   importedDocument = importManager.importToNewDocument(archiveOptions)
+                   documents.append(importedDocument)
+               filesToImport = []
+                   
+                   #importManager.importToTarget(archiveOptions, newComponent)
+               #ui.messageBox("Imported: " + str(countFiles))
+               #rootDocument.activate() crashes Fusion
        
            if addButtonInput:
                prevButtonState = addButtonInput.value
                print(str(addButtonInput.value))
+           
+           
            
         except:
             if ui:
@@ -299,7 +322,8 @@ class CompareCommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
             checkFacesInput = groupChildInputs.addBoolValueInput(commandId + '_faces', 'Face properties', True, '', True)
             
             #Create a TextBox for displaying results
-            textBoxInput = inputs.addTextBoxCommandInput(commandId + '_textBox', 'Results', 'To be calculated', 10, True)
+            textBoxInput = inputs.addTextBoxCommandInput(commandId + '_textBox', ' ', 'To be calculated', 10, True)
+            textBoxInput.isFullWidth = True
             
         except:
             if ui:
@@ -312,6 +336,9 @@ def run(context):
         app = adsk.core.Application.get()
         global ui        
         ui = app.userInterface
+        global rootDocument
+        
+        rootDocument = app.activeDocument
 
         global commandId
         global commandName
@@ -322,6 +349,9 @@ def run(context):
         
         global filesToImport
         filesToImport = []
+        
+        global documents
+        documents = []
         
         global libAppear
         # Get a reference to an appearance in the library.
