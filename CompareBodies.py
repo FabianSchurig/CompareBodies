@@ -3,6 +3,7 @@
 
 import adsk.core, adsk.fusion, adsk.cam, traceback
 import math
+import os
 
 commandId = 'CompareBodies'
 commandName = 'Compare'
@@ -12,11 +13,36 @@ rowNumber = 0
 # Global set of event handlers to keep them referenced for the duration of the command
 handlers = []
 
+'''
+compares two BRepBodies by their surface area
+'''
 def compareBRepBodiesByArea(firstBRepBody, secondBRepBody):
     return math.isclose(firstBRepBody.area,secondBRepBody.area)
-    
+
+'''
+compares two BRepBodies by their volume
+'''   
 def compareBRepBodiesByVolume(firstBRepBody, secondBRepBody):
     return math.isclose(firstBRepBody.volume,secondBRepBody.volume)
+
+''' 
+addButtonOnClick(isMulti) opens a FileDialog and returns the users selections
+boolean isMulti enables multi selections in the dialog if True
+returns number of Files loaded into new components in current design
+'''    
+def addButtonOnClick(isMulti):
+    global app
+    design = adsk.fusion.Design.cast(app.activeProduct)
+    
+    #Create FileDialog
+    dialog = ui.createFileDialog()
+    dialog.isMultiSelectEnabled = isMulti
+    dialog.filter = 'Fusion Archive (*.f3d)'
+    dialog.initialDirectory = os.path.expanduser('~/Documents/')
+    if dialog.showOpen() != adsk.core.DialogResults.DialogOK:
+        return
+
+    return dialog.filenames
 
 '''
 compare vertices [Vertex1,Vertex2,Vertex3,Vertex4] [Vertex1,Vertex2,Vertex3,Vertex4]
@@ -32,6 +58,9 @@ def compareVerticesList(firstVertices, secondVertices, comDifference):
             return False
     return True
 
+'''
+compares two vertices by also considers the centerOfMass difference (only when volume is equal)
+'''
 def compareVertices(firstVertex,secondVertex, comDifference):
     #ui.messageBox(str(firstVertex.geometry.x) + " " + str(firstVertex.geometry.y) + " " + str(firstVertex.geometry.z) + "\n" + str(secondVertex.geometry.x) + " " + str(secondVertex.geometry.y) + " " + str(secondVertex.geometry.z))    
     if math.isclose(firstVertex.geometry.x,secondVertex.geometry.x + comDifference[0], abs_tol=1e-09) and math.isclose(firstVertex.geometry.y,secondVertex.geometry.y + comDifference[1], abs_tol=1e-09) and math.isclose(firstVertex.geometry.z,secondVertex.geometry.z + comDifference[2], abs_tol=1e-09):
@@ -51,6 +80,9 @@ def getCoMDifference(firstBRep,secondBRep):
     diff.append(firstBRep.physicalProperties.centerOfMass.z - secondBRep.physicalProperties.centerOfMass.z)
     return diff
 
+'''
+prints vertices of a face in a messageBox
+'''
 def printVertices(face):
     res = ""
     res += str(face.vertices.count) + "\n"
@@ -59,6 +91,12 @@ def printVertices(face):
         res += str(face.vertices.item(i).geometry.asArray()) + "\n"
     ui.messageBox(res)
 
+'''
+compares two BRepBodies by their faces
+iterates through all faces and gets all vertices of each face
+adds the array of vertices of a face to another array called firstFaces
+iterate faces from BRep 1 and compares its vertices with the ones from BRep 2
+'''
 def compareBRepBodiesByFaces(firstBRepBody, secondBRepBody):
     volumeIsEqual = compareBRepBodiesByVolume(firstBRepBody,secondBRepBody)
     if firstBRepBody.faces.count != secondBRepBody.faces.count:
@@ -101,6 +139,7 @@ def compareBRepBodiesByFaces(firstBRepBody, secondBRepBody):
         secondBRepBody.isLightBulbOn = False
     return isEqual
 
+
 class CompareExecuteHandler(adsk.core.CommandEventHandler):
     def __init__(self):
         super().__init__()
@@ -109,14 +148,45 @@ class CompareExecuteHandler(adsk.core.CommandEventHandler):
            command = args.firingEvent.sender                  
            inputs = command.commandInputs
            
-           selectionInput = inputs.itemById(commandId + '_selection')
+           product = app.activeProduct
+           design = adsk.fusion.Design.cast(product)
+            
+           rootComp = design.rootComponent
            
-           if selectionInput.selectionCount == 2:
-               firstBase = selectionInput.selection(0).entity
-               secondBase = selectionInput.selection(1).entity
-               print(str(compareBRepBodiesByArea(firstBase,secondBase)))
+           selectionRootInput = inputs.itemById(commandId + '_selection_root')
+           selectionSecondInput = inputs.itemById(commandId + '_selection_second')
+           
+           textBoxInput = inputs.itemById(commandId + '_textBox')
+           
+           isMultiInput = inputs.itemById(commandId + '_multi')
+           
+           countFiles = 0
+           #import selected files
+           for filename in filesToImport:
+               trans = adsk.core.Matrix3D.create()
+               newOccurence = rootComp.occurrences.addNewComponent(trans)
+               newComponent = newOccurence.component
+               # Get import manager 
+               importManager = app.importManager
+               countFiles = countFiles + 1
+               # Get archive import options
+               archiveOptions = importManager.createFusionArchiveImportOptions(filename)
+               
+               # Import archive file to root component
+               #importManager.importToNewDocument(archiveOptions)
+               importManager.importToTarget(archiveOptions, newComponent)
+           ui.messageBox("Imported: " + str(countFiles))
 
-               ui.messageBox("Area: "+ str(compareBRepBodiesByArea(firstBase,secondBase)) + "\nVolume:" + str(compareBRepBodiesByVolume(firstBase,secondBase)) + "\nFaces: " + str(compareBRepBodiesByFaces(firstBase,secondBase)))
+           if selectionRootInput.selectionCount == 1 and selectionSecondInput.selectionCount == 1 and not isMultiInput.value:
+               firstBase = selectionRootInput.selection(0).entity
+               secondBase = selectionSecondInput.selection(0).entity
+               checkArea = compareBRepBodiesByArea(firstBase,secondBase)
+               checkVolume = compareBRepBodiesByVolume(firstBase,secondBase)
+               checkFaces = compareBRepBodiesByFaces(firstBase,secondBase)
+               res = "Area: "+str(checkArea)+ "\nVolume: " + str(checkVolume)+ "\nFaces: " + str(checkFaces)
+               textBoxInput.formattedText = res
+           if selectionRootInput and isMultiInput.value:
+               textBoxInput.formattedText = "multibleBodies"
         except:
             if ui:
                 ui.messageBox('Failed:\n{}'.format(traceback.format_exc()))
@@ -126,12 +196,35 @@ class CompareCommandInputChangedHandler(adsk.core.InputChangedEventHandler):
         super().__init__()
     def notify(self, args):
         try:
+           global prevButtonState
+           global filesToImport
            command = args.firingEvent.sender   
            cmdInput = args.input                   
-           inputs = command.commandInputs 
+           inputs = command.commandInputs
+           
+           product = app.activeProduct
+           design = adsk.fusion.Design.cast(product)
+            
+           rootComp = design.rootComponent
+           
+           secondSelectionInput = inputs.itemById(commandId + '_selection_second')
+           
+           isMultiInput = inputs.itemById(commandId + '_multi')
+           if isMultiInput.value:
+               secondSelectionInput.clearSelection()
+               secondSelectionInput.isVisible = False
+           else:
+               secondSelectionInput.isVisible = True
            
            addButtonInput = inputs.itemById(commandId + '_add')
-           print(str(addButtonInput.value))
+           if prevButtonState != addButtonInput.value:
+               filesToImport = addButtonOnClick(isMultiInput.value)
+               ui.messageBox("Imported Files: "+str(filesToImport))
+       
+           if addButtonInput:
+               prevButtonState = addButtonInput.value
+               print(str(addButtonInput.value))
+           
         except:
             if ui:
                 ui.messageBox('Failed:\n{}'.format(traceback.format_exc()))
@@ -177,17 +270,36 @@ class CompareCommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
             global commandId
             
             # Create selection input
-            selectionInput = inputs.addSelectionInput(commandId + '_selection', 'Select', 'Basic select command input')
-            selectionInput.setSelectionLimits(0)
+            selectionInput = inputs.addSelectionInput(commandId + '_selection_root', 'Root Body', 'Basic select command input')
+            selectionInput.setSelectionLimits(1,1)
             selectionInput.addSelectionFilter("SolidBodies")
             
             #Create selection for design in current directory
+                        
+            # Create selection input
+            selectionInput = inputs.addSelectionInput(commandId + '_selection_second', 'Second Body', 'Basic select command input')
+            selectionInput.setSelectionLimits(1,1)
+            selectionInput.addSelectionFilter("SolidBodies")
             
-            addButtonInput = inputs.addBoolValueInput(commandId + '_add', ' ', False, '', True)
-            addButtonInput.text = "Körper auswählen"
-            addButtonInput.isFullWidth = True
+            isMultiInput = inputs.addBoolValueInput(commandId + '_multi', 'Multible Bodies', True, '', False)
+            
+            addButtonInput = inputs.addBoolValueInput(commandId + '_add', 'Import Body', False, './resources/button/', True)
+            #addButtonInput.text = "Use F3D"
+            #addButtonInput.isFullWidth = False
             #tableInput.addToolbarCommandInput(addButtonInput)
             
+            #CompareSettings group input
+            groupCmdInput = inputs.addGroupCommandInput('group', 'Compare Settings')
+            groupCmdInput.isExpanded = False
+            #groupCmdInput.isEnabledCheckBoxDisplayed = True
+            groupChildInputs = groupCmdInput.children
+            
+            checkAreaInput = groupChildInputs.addBoolValueInput(commandId + '_area', 'Area', True, '', True)
+            checkVolumeInput = groupChildInputs.addBoolValueInput(commandId + '_volume', 'Volume', True, '', True)
+            checkFacesInput = groupChildInputs.addBoolValueInput(commandId + '_faces', 'Face properties', True, '', True)
+            
+            #Create a TextBox for displaying results
+            textBoxInput = inputs.addTextBoxCommandInput(commandId + '_textBox', 'Results', 'To be calculated', 10, True)
             
         except:
             if ui:
@@ -204,6 +316,12 @@ def run(context):
         global commandId
         global commandName
         global commandDescription
+        
+        global prevButtonState
+        prevButtonState = True
+        
+        global filesToImport
+        filesToImport = []
         
         global libAppear
         # Get a reference to an appearance in the library.
