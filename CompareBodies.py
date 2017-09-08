@@ -100,19 +100,22 @@ iterate faces from BRep 1 and compares its vertices with the ones from BRep 2
 def compareBRepBodiesByFaces(firstBRepBody, secondBRepBody):
     volumeIsEqual = compareBRepBodiesByVolume(firstBRepBody,secondBRepBody)
     #how to get differences of bodies with different faces count?    
-    if firstBRepBody.faces.count != secondBRepBody.faces.count:
-        return False
+    #if firstBRepBody.faces.count != secondBRepBody.faces.count:
+    #    return False
     firstFaces = []
     secondFaces = []
     for i in range(0,firstBRepBody.faces.count):
         firstVertices = []
-        secondVertices = []
         #printVertices(firstBRepBody.faces.item(i))
         for j in range(0, firstBRepBody.faces.item(i).vertices.count):
             firstVertices.append(firstBRepBody.faces.item(i).vertices.item(j))         
+        firstFaces.append(firstVertices)
+    for i in range(0,secondBRepBody.faces.count):
+        secondVertices = []
+        #printVertices(firstBRepBody.faces.item(i))
+        for j in range(0, secondBRepBody.faces.item(i).vertices.count):        
             secondVertices.append(secondBRepBody.faces.item(i).vertices.item(j))
         secondFaces.append(secondVertices)
-        firstFaces.append(firstVertices)
     isEqual = True
     i = 0
     
